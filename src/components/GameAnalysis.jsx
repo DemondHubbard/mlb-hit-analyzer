@@ -1,12 +1,12 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import PitcherPanel from './PitcherPanel.jsx';
 import BatterCard from './BatterCard.jsx';
 import SummaryBar from './SummaryBar.jsx';
 import ErrorBoundary from './ErrorBoundary.jsx';
-import { BatterCardSkeleton, PitcherSkeleton } from './LoadingSkeletons.jsx';
+import { BatterCardSkeleton } from './LoadingSkeletons.jsx';
 import { formatTime } from '../utils/helpers.js';
 import {
-  loadCache, saveCache, PLAYER_KEY, today,
+  loadCache, saveCache, PLAYER_KEY, ANALYSIS_KEY, today,
 } from '../utils/cache.js';
 import {
   processPitcherSplits, processPitcherGameLog,
@@ -21,15 +21,21 @@ async function fetchJSON(url) {
   return resp.json();
 }
 
+// Fetch silently — returns null on error (used for optional historical seasons)
+async function fetchSoft(url) {
+  try { return await fetchJSON(url); } catch { return null; }
+}
+
 async function loadPitcher(pitcherStub) {
   if (!pitcherStub?.id) return null;
   const cacheKey = PLAYER_KEY(`pitcher_${pitcherStub.id}`, today);
   const cached = loadCache(cacheKey);
   if (cached) return cached;
 
-  const [info, splits, log] = await Promise.all([
+  const [info, splits26, splits25, log] = await Promise.all([
     fetchJSON(`/api/mlb/people/${pitcherStub.id}`),
     fetchJSON(`/api/mlb/people/${pitcherStub.id}/stats?stats=statSplits&group=pitching&season=2026&sitCodes=vl,vr&gameType=R`),
+    fetchSoft(`/api/mlb/people/${pitcherStub.id}/stats?stats=statSplits&group=pitching&season=2025&sitCodes=vl,vr&gameType=R`),
     fetchJSON(`/api/mlb/people/${pitcherStub.id}/stats?stats=gameLog&group=pitching&season=2026&gameType=R`),
   ]);
 
@@ -38,7 +44,8 @@ async function loadPitcher(pitcherStub) {
     id: person.id || pitcherStub.id,
     name: person.fullName || pitcherStub.name,
     hand: person.pitchHand?.code || 'R',
-    splits: processPitcherSplits(splits),
+    splits: processPitcherSplits(splits26),
+    splits2025: splits25 ? processPitcherSplits(splits25) : null,
     gameLog: processPitcherGameLog(log),
   };
   saveCache(cacheKey, result);
@@ -49,14 +56,13 @@ async function loadBatter(batterStub) {
   if (!batterStub?.id) return null;
   const cacheKey = PLAYER_KEY(batterStub.id, today);
   const cached = loadCache(cacheKey);
-  if (cached) {
-    // Preserve lineup order from live data
-    return { ...cached, lineupOrder: batterStub.battingOrder ?? cached.lineupOrder };
-  }
+  if (cached) return { ...cached, lineupOrder: batterStub.battingOrder ?? cached.lineupOrder };
 
-  const [info, splits, log] = await Promise.all([
+  const [info, splits26, splits25, splits24, log] = await Promise.all([
     fetchJSON(`/api/mlb/people/${batterStub.id}`),
     fetchJSON(`/api/mlb/people/${batterStub.id}/stats?stats=statSplits&group=hitting&season=2026&sitCodes=vl,vr&gameType=R`),
+    fetchSoft(`/api/mlb/people/${batterStub.id}/stats?stats=statSplits&group=hitting&season=2025&sitCodes=vl,vr&gameType=R`),
+    fetchSoft(`/api/mlb/people/${batterStub.id}/stats?stats=statSplits&group=hitting&season=2024&sitCodes=vl,vr&gameType=R`),
     fetchJSON(`/api/mlb/people/${batterStub.id}/stats?stats=gameLog&group=hitting&season=2026&gameType=R`),
   ]);
 
@@ -67,7 +73,9 @@ async function loadBatter(batterStub) {
     position: batterStub.position || person.primaryPosition?.abbreviation || 'UT',
     batSide: person.batSide?.code || 'R',
     lineupOrder: batterStub.battingOrder ?? 999,
-    splits: processBatterSplits(splits),
+    splits: processBatterSplits(splits26),
+    splits2025: splits25 ? processBatterSplits(splits25) : null,
+    splits2024: splits24 ? processBatterSplits(splits24) : null,
     gameLog: processBatterGameLog(log),
   };
   saveCache(cacheKey, result);
@@ -79,14 +87,11 @@ async function getLineup(gamePk, teamId, isHome) {
     const live = await fetchJSON(`/api/mlb/game/${gamePk}/live`);
     const lineup = extractLineupFromLive(live, isHome);
     if (lineup?.length >= 1) return { batters: lineup, fromLive: true };
-  } catch {
-    // fall through
-  }
+  } catch { /* fall through */ }
 
   try {
     const roster = await fetchJSON(`/api/mlb/teams/${teamId}/roster?rosterType=active`);
-    const batters = extractFromRoster(roster);
-    return { batters, fromLive: false };
+    return { batters: extractFromRoster(roster), fromLive: false };
   } catch {
     return { batters: [], fromLive: false };
   }
@@ -109,15 +114,24 @@ export default function GameAnalysis({ game, onBack }) {
   const [analyses, setAnalyses] = useState({});
   const [analyzeAllLoading, setAnalyzeAllLoading] = useState(false);
 
+  // Restore persisted analyses on mount
+  useEffect(() => {
+    const cached = loadCache(ANALYSIS_KEY(game.gamePk, today));
+    if (cached && Object.keys(cached).length > 0) setAnalyses(cached);
+  }, [game.gamePk]);
+
+  // Persist analyses whenever they change
+  useEffect(() => {
+    if (Object.keys(analyses).length > 0) {
+      saveCache(ANALYSIS_KEY(game.gamePk, today), analyses);
+    }
+  }, [analyses, game.gamePk]);
+
   const handleLoad = async () => {
     setLoading(true);
     setLoadError(null);
     try {
-      const [
-        awayP, homeP,
-        awayLineup, homeLineup,
-        oddsResp,
-      ] = await Promise.all([
+      const [awayP, homeP, awayLineup, homeLineup, oddsResp] = await Promise.all([
         loadPitcher(game.away.pitcher),
         loadPitcher(game.home.pitcher),
         getLineup(game.gamePk, game.away.teamId, false),
@@ -134,14 +148,11 @@ export default function GameAnalysis({ game, onBack }) {
       if (!homeLineup.fromLive) notices.push(`${game.home.teamAbbrev} lineup not posted — showing roster`);
       if (notices.length) setLineupNotice(notices.join(' · '));
 
-      const allBatterStubs = [
-        ...awayLineup.batters.slice(0, 9),
-        ...homeLineup.batters.slice(0, 9),
-      ];
+      const awayStubs = awayLineup.batters.slice(0, 9);
+      const homeStubs = homeLineup.batters.slice(0, 9);
+      const allBatters = await Promise.all([...awayStubs, ...homeStubs].map(loadBatter));
 
-      const allBatters = await Promise.all(allBatterStubs.map(loadBatter));
-
-      const awayIds = new Set(awayLineup.batters.slice(0, 9).map(b => b.id));
+      const awayIds = new Set(awayStubs.map(b => b.id));
       setAwayBatters(allBatters.filter(b => b && awayIds.has(b.id)));
       setHomeBatters(allBatters.filter(b => b && !awayIds.has(b.id)));
       setLoaded(true);
@@ -174,11 +185,13 @@ export default function GameAnalysis({ game, onBack }) {
         });
         if (resp.ok) {
           const data = await resp.json();
-          setAnalyses(prev => ({ ...prev, [batter.id]: { ...data, _name: batter.name } }));
+          setAnalyses(prev => {
+            const updated = { ...prev, [batter.id]: { ...data, _name: batter.name } };
+            saveCache(ANALYSIS_KEY(game.gamePk, today), updated);
+            return updated;
+          });
         }
-      } catch {
-        // skip failed
-      }
+      } catch { /* skip */ }
     }
     setAnalyzeAllLoading(false);
   };
@@ -188,9 +201,7 @@ export default function GameAnalysis({ game, onBack }) {
 
   const sortedBatters = [...tabBatters].sort((a, b) => {
     if (sortBy === 'probability') {
-      const ap = analyses[a.id]?.hitProbability ?? -1;
-      const bp = analyses[b.id]?.hitProbability ?? -1;
-      return bp - ap;
+      return (analyses[b.id]?.hitProbability ?? -1) - (analyses[a.id]?.hitProbability ?? -1);
     }
     return (a.lineupOrder ?? 999) - (b.lineupOrder ?? 999);
   });
@@ -198,9 +209,6 @@ export default function GameAnalysis({ game, onBack }) {
   const tabAnalyses = Object.fromEntries(
     Object.entries(analyses).filter(([id]) => tabBatters.some(b => b.id === Number(id)))
   );
-
-  const awayFacing = homePitcher?.hand;
-  const homeFacing = awayPitcher?.hand;
 
   return (
     <div>
@@ -226,8 +234,8 @@ export default function GameAnalysis({ game, onBack }) {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
         {loaded ? (
           <>
-            <PitcherPanel pitcher={awayPitcher} label={`${game.away.teamAbbrev} SP`} facingHand={homeFacing} />
-            <PitcherPanel pitcher={homePitcher} label={`${game.home.teamAbbrev} SP`} facingHand={awayFacing} />
+            <PitcherPanel pitcher={awayPitcher} label={`${game.away.teamAbbrev} SP`} facingHand={homePitcher?.hand} />
+            <PitcherPanel pitcher={homePitcher} label={`${game.home.teamAbbrev} SP`} facingHand={awayPitcher?.hand} />
           </>
         ) : (
           <>
@@ -243,7 +251,7 @@ export default function GameAnalysis({ game, onBack }) {
         )}
       </div>
 
-      {/* Load button or lineup notice */}
+      {/* Load button */}
       {!loaded && !loading && (
         <div className="text-center py-8">
           {loadError && (
@@ -257,6 +265,7 @@ export default function GameAnalysis({ game, onBack }) {
           >
             Load lineup & stats
           </button>
+          <p className="text-xs text-gray-600 mt-3">Fetches 2024–2026 splits + game log for each player</p>
         </div>
       )}
 
@@ -267,7 +276,7 @@ export default function GameAnalysis({ game, onBack }) {
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
             </svg>
-            Loading lineup & stats...
+            Loading 3 seasons of splits + game log...
           </div>
           <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 max-w-4xl mx-auto">
             {[...Array(6)].map((_, i) => <BatterCardSkeleton key={i} />)}

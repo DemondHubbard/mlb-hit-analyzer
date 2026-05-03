@@ -1,7 +1,8 @@
 export const today = new Date().toISOString().split('T')[0];
 
-export const GAMES_KEY = (date) => `mlb_games_${date}`;
-export const PLAYER_KEY = (id, date) => `mlb_player_${id}_${date}`;
+export const GAMES_KEY    = (date)        => `mlb_games_${date}`;
+export const PLAYER_KEY   = (id, date)    => `mlb_player_${id}_${date}`;
+export const ANALYSIS_KEY = (gamePk, date) => `mlb_analysis_${gamePk}_${date}`;
 
 export function loadCache(key) {
   try {

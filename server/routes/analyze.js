@@ -2,6 +2,42 @@ const express = require('express');
 const Anthropic = require('@anthropic-ai/sdk');
 const router = express.Router();
 
+function splitLine(splits, hand) {
+  if (!splits) return 'N/A';
+  const s = splits[hand === 'L' ? 'vsLHP' : 'vsRHP'] || splits[hand === 'L' ? 'vsLHB' : 'vsRHB'];
+  if (!s) return 'N/A';
+  if (s.era !== undefined) {
+    // pitcher split
+    return `BAA ${s.avg} | ERA ${s.era} | WHIP ${s.whip} | ${s.strikeOuts}K/${s.battersFaced}BF`;
+  }
+  // batter split
+  return `AVG ${s.avg} | OBP ${s.obp} | SLG ${s.slg} | ${s.atBats}AB`;
+}
+
+function batterHistoryBlock(batter, vsKey) {
+  const lines = [];
+  for (const [year, field] of [['2025', 'splits2025'], ['2024', 'splits2024']]) {
+    const s = batter[field];
+    if (!s) continue;
+    const split = s[vsKey];
+    if (split?.atBats > 0) {
+      lines.push(`  ${year} vs same hand: AVG ${split.avg} | OBP ${split.obp} | SLG ${split.slg} | ${split.atBats}AB`);
+    }
+    // overall (LHP+RHP combined) if available
+    const other = s[vsKey === 'vsLHP' ? 'vsRHP' : 'vsLHP'];
+    if (other?.atBats > 0) {
+      lines.push(`  ${year} vs opp hand:  AVG ${other.avg} | OBP ${other.obp} | SLG ${other.slg} | ${other.atBats}AB`);
+    }
+  }
+  return lines.length ? lines.join('\n') : '  No historical data available';
+}
+
+function pitcherHistoryBlock(pitcher, vsKey) {
+  const s = pitcher.splits2025?.[vsKey];
+  if (!s) return '  No 2025 data available';
+  return `  2025 vs same side: BAA ${s.avg} | ERA ${s.era} | WHIP ${s.whip} | ${s.strikeOuts}K/${s.battersFaced}BF`;
+}
+
 router.post('/', async (req, res) => {
   const apiKey = req.headers['x-anthropic-api-key'] || process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
@@ -16,20 +52,20 @@ router.post('/', async (req, res) => {
   const client = new Anthropic({ apiKey });
 
   const pitcherHand = pitcher.hand || 'R';
-  const vsKey = pitcherHand === 'L' ? 'vsLHP' : 'vsRHP';
-  const relevantSplit = batter.splits?.[vsKey] || {};
-
   const batterHand = batter.batSide === 'L' ? 'L' : (batter.batSide === 'S' ? 'S' : 'R');
+  const vsKey = pitcherHand === 'L' ? 'vsLHP' : 'vsRHP';
   const pitcherVsKey = batterHand === 'L' ? 'vsLHB' : 'vsRHB';
+
+  const relevantSplit = batter.splits?.[vsKey] || {};
   const pitcherVsSplit = pitcher.splits?.[pitcherVsKey] || {};
 
   const gameLog = batter.gameLog?.slice(0, 10) || [];
   const last3 = gameLog.slice(0, 3);
   const last5 = gameLog.slice(0, 5);
-  const l3Hits = last3.reduce((s, g) => s + (g.hits || 0), 0);
-  const l3AB = last3.reduce((s, g) => s + (g.atBats || 0), 0);
-  const l5Hits = last5.reduce((s, g) => s + (g.hits || 0), 0);
-  const l5AB = last5.reduce((s, g) => s + (g.atBats || 0), 0);
+  const l3Hits    = last3.reduce((s, g) => s + (g.hits || 0), 0);
+  const l3AB      = last3.reduce((s, g) => s + (g.atBats || 0), 0);
+  const l5Hits    = last5.reduce((s, g) => s + (g.hits || 0), 0);
+  const l5AB      = last5.reduce((s, g) => s + (g.atBats || 0), 0);
   const l3WithHit = last3.filter(g => g.hits > 0).length;
   const l5WithHit = last5.filter(g => g.hits > 0).length;
 
@@ -42,35 +78,57 @@ router.post('/', async (req, res) => {
     oddsText = `${p > 0 ? '+' : ''}${p} (implied probability: ${implied.toFixed(1)}%)`;
   }
 
+  const smallSample2026 = (relevantSplit.atBats || 0) < 40;
+
   const prompt = `You are an expert MLB prop betting analyst. Calculate the probability of this batter recording AT LEAST 1 hit.
 
-BATTER: ${batter.name} (Bats: ${batterHand}, Position: ${batter.position || 'UT'})
-vs LHP 2026: AVG ${batter.splits?.vsLHP?.avg || 'N/A'} | OBP ${batter.splits?.vsLHP?.obp || 'N/A'} | SLG ${batter.splits?.vsLHP?.slg || 'N/A'} | ${batter.splits?.vsLHP?.atBats || 0} AB | ${batter.splits?.vsLHP?.strikeOuts || 0} K
-vs RHP 2026: AVG ${batter.splits?.vsRHP?.avg || 'N/A'} | OBP ${batter.splits?.vsRHP?.obp || 'N/A'} | SLG ${batter.splits?.vsRHP?.slg || 'N/A'} | ${batter.splits?.vsRHP?.atBats || 0} AB | ${batter.splits?.vsRHP?.strikeOuts || 0} K
-Today faces: ${pitcherHand}HP — relevant split: AVG ${relevantSplit.avg || 'N/A'} OBP ${relevantSplit.obp || 'N/A'} in ${relevantSplit.atBats || 0} AB
-Last 3 games: ${l3Hits}H in ${l3AB}AB, had a hit in ${l3WithHit}/3 games
-Last 5 games: ${l5Hits}H in ${l5AB}AB, had a hit in ${l5WithHit}/5 games
-Game log (most recent first): ${gameLog.map(g => `${g.date}: ${g.hits}/${g.atBats}/${g.strikeOuts}K`).join(', ')}
+━━━ BATTER: ${batter.name} (Bats: ${batterHand}, Position: ${batter.position || 'UT'}) ━━━
 
-OPPOSING PITCHER: ${pitcher.name} (Throws: ${pitcherHand})
-vs LHB: BAA ${pitcher.splits?.vsLHB?.avg || 'N/A'} | ERA ${pitcher.splits?.vsLHB?.era || 'N/A'} | WHIP ${pitcher.splits?.vsLHB?.whip || 'N/A'} | ${pitcher.splits?.vsLHB?.strikeOuts || 0} K in ${pitcher.splits?.vsLHB?.battersFaced || 0} BF
-vs RHB: BAA ${pitcher.splits?.vsRHB?.avg || 'N/A'} | ERA ${pitcher.splits?.vsRHB?.era || 'N/A'} | WHIP ${pitcher.splits?.vsRHB?.whip || 'N/A'} | ${pitcher.splits?.vsRHB?.strikeOuts || 0} K in ${pitcher.splits?.vsRHB?.battersFaced || 0} BF
-Pitcher vs this batter's handedness (${batterHand}HB): BAA ${pitcherVsSplit.avg || 'N/A'} WHIP ${pitcherVsSplit.whip || 'N/A'}
-Pitcher last 3 starts: ${pitcherLog.map(g => `${g.date}: ${g.inningsPitched}IP ${g.earnedRuns}ER ${g.hits}H`).join(' | ')}
+2026 SEASON SPLITS (current):
+  vs LHP: AVG ${batter.splits?.vsLHP?.avg || 'N/A'} | OBP ${batter.splits?.vsLHP?.obp || 'N/A'} | SLG ${batter.splits?.vsLHP?.slg || 'N/A'} | ${batter.splits?.vsLHP?.atBats || 0} AB
+  vs RHP: AVG ${batter.splits?.vsRHP?.avg || 'N/A'} | OBP ${batter.splits?.vsRHP?.obp || 'N/A'} | SLG ${batter.splits?.vsRHP?.slg || 'N/A'} | ${batter.splits?.vsRHP?.atBats || 0} AB
+  Today faces: ${pitcherHand}HP — relevant 2026 split: AVG ${relevantSplit.avg || 'N/A'} OBP ${relevantSplit.obp || 'N/A'} in ${relevantSplit.atBats || 0} AB${smallSample2026 ? ' ⚠ SMALL SAMPLE — weight historical splits more heavily' : ''}
 
-BETTING ODDS: ${oddsText}
+HISTORICAL SPLITS (2025–2024 context):
+${batterHistoryBlock(batter, vsKey)}
 
-CONTEXT: MLB baseline is ~65-70% per game. Weight the matchup-specific split heavily. Note sample size — splits under 50 AB are unreliable. A hot streak (hit in 4+ of last 5) adds ~5%. A cold streak (0 hits in last 3) subtracts ~5%.
+RECENT FORM:
+  Last 3 games: ${l3Hits}H in ${l3AB}AB, had a hit in ${l3WithHit}/3 games
+  Last 5 games: ${l5Hits}H in ${l5AB}AB, had a hit in ${l5WithHit}/5 games
+  Game log (recent first): ${gameLog.map(g => `${g.date}: ${g.hits}/${g.atBats} ${g.strikeOuts}K`).join(', ')}
 
-Return ONLY valid JSON, no markdown or explanation:
+━━━ OPPOSING PITCHER: ${pitcher.name} (Throws: ${pitcherHand}) ━━━
+
+2026 SEASON SPLITS (current):
+  vs LHB: ${splitLine(pitcher.splits, 'L')}
+  vs RHB: ${splitLine(pitcher.splits, 'R')}
+  vs this batter's hand (${batterHand}HB): BAA ${pitcherVsSplit.avg || 'N/A'} | WHIP ${pitcherVsSplit.whip || 'N/A'}
+
+HISTORICAL (2025 context):
+${pitcherHistoryBlock(pitcher, pitcherVsKey)}
+
+  Last 3 starts: ${pitcherLog.map(g => `${g.date}: ${g.inningsPitched}IP ${g.earnedRuns}ER ${g.hits}H ${g.strikeOuts}K`).join(' | ') || 'N/A'}
+
+━━━ BETTING ODDS ━━━
+${oddsText}
+
+━━━ ANALYSIS GUIDANCE ━━━
+• MLB baseline hit probability: ~65–70% per game
+• When 2026 sample < 40 AB, rely more on 2025/2024 historical splits
+• 2025 data is most predictive for established players; 2024 adds sample size confirmation
+• Matchup-specific split (batter vs pitcher handedness) is the most important single factor
+• Hot streak (hit in 4+/5 games): +4–6%. Cold streak (0 hits in last 3): −4–6%
+• High WHIP pitcher (>1.40) slightly suppresses hit probability; low WHIP (<1.10) suppresses more
+
+Return ONLY valid JSON, no markdown, no explanation:
 {
   "hitProbability": <integer 0-100>,
   "confidence": "low" | "medium" | "high",
   "recommendation": "strong_pick" | "good_value" | "neutral" | "lean_avoid" | "avoid",
   "hotCold": "hot" | "warm" | "neutral" | "cold" | "ice_cold",
-  "edge": <float — positive means value vs implied odds, null if no odds provided>,
-  "reasoning": "<2-3 sentence analysis>",
-  "keyFactors": ["<factor 1>", "<factor 2>", "<factor 3>"]
+  "edge": <float — hitProbability minus implied%, positive = value, null if no odds>,
+  "reasoning": "<2-3 sentence analysis citing the most important data points>",
+  "keyFactors": ["<specific factor with numbers>", "<specific factor with numbers>", "<specific factor with numbers>"]
 }`;
 
   try {
