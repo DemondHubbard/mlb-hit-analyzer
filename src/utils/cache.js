@@ -1,4 +1,11 @@
-export const today = new Date().toISOString().split('T')[0];
+// Use local browser date (ET for DC users) — toISOString() would return UTC and
+// flip to tomorrow after 8 PM ET, showing the wrong day's games.
+const _d = new Date();
+export const today = [
+  _d.getFullYear(),
+  String(_d.getMonth() + 1).padStart(2, '0'),
+  String(_d.getDate()).padStart(2, '0'),
+].join('-');
 
 export const GAMES_KEY    = (date)        => `mlb_games_${date}`;
 export const PLAYER_KEY   = (id, date)    => `mlb_player_${id}_${date}`;

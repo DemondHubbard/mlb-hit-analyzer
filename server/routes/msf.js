@@ -92,7 +92,7 @@ router.get('/player', async (req, res) => {
   if (!name) return res.status(400).json({ error: 'name query param required' });
 
   const slug = nameSlug(name);
-  const today = date || new Date().toISOString().split('T')[0].replace(/-/g, '');
+  const today = date || new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' }).replace(/-/g, '');
   const cacheKey = `msf_player_${slug}_${today}`;
 
   const cached = serverCache.get(cacheKey);
@@ -135,7 +135,7 @@ router.get('/lineups', async (req, res) => {
   const apiKey = req.headers['x-msf-api-key'] || process.env.MSF_API_KEY;
   if (!apiKey) return res.json({ error: 'MSF_API_KEY not configured', lineups: [] });
 
-  const today = req.query.date || new Date().toISOString().split('T')[0].replace(/-/g, '');
+  const today = req.query.date || new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' }).replace(/-/g, '');
   const cacheKey = `msf_lineups_${today}`;
   const cached = serverCache.get(cacheKey);
   if (cached) return res.json(cached);

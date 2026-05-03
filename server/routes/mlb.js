@@ -25,7 +25,9 @@ const handle = (fn) => async (req, res) => {
   }
 };
 
-const today = new Date().toISOString().split('T')[0];
+// MLB schedule uses Eastern Time for dates — compute ET date on the server
+// so cache keys and default dates don't flip at 8 PM ET (midnight UTC).
+const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
 
 // Helper: cache-aside wrapper for MLB player data (12h TTL — doesn't change mid-day)
 async function cachedMlbGet(cacheKey, fetcher, ttlMs = 12 * 3600 * 1000) {
