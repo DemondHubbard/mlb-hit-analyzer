@@ -48,6 +48,54 @@ function SplitHighlight({ label, split, active }) {
   );
 }
 
+function InjuryBadge({ injury }) {
+  if (!injury?.status) return null;
+  const colors = {
+    OUT: 'bg-red-900 text-red-300 border-red-700',
+    GTD: 'bg-orange-900 text-orange-300 border-orange-700',
+    'GAME TIME DECISION': 'bg-orange-900 text-orange-300 border-orange-700',
+    Q:   'bg-yellow-900 text-yellow-300 border-yellow-700',
+  };
+  const cls = colors[injury.status.toUpperCase()] || 'bg-gray-800 text-gray-300 border-gray-600';
+  return (
+    <span className={`text-xs px-1.5 py-0.5 rounded border font-semibold ${cls}`} title={injury.description || ''}>
+      {injury.status}
+    </span>
+  );
+}
+
+function MsfPanel({ msf }) {
+  if (!msf) return null;
+  const { rolling, projections } = msf;
+  const hasRolling = rolling?.L7 || rolling?.L14 || rolling?.L30;
+  const hasProj    = projections?.projH != null;
+  if (!hasRolling && !hasProj) return null;
+
+  return (
+    <div className="bg-gray-800/40 rounded-lg px-3 py-2 space-y-1.5">
+      {hasProj && (
+        <div className="flex items-center gap-3 text-xs">
+          <span className="text-gray-500">Proj today:</span>
+          <span className="font-semibold text-purple-300">
+            {projections.projH?.toFixed(1)}H in {projections.projAB?.toFixed(1)}AB
+          </span>
+          {projections.fdPts && (
+            <span className="text-gray-500">FD {projections.fdPts.toFixed(1)}pts</span>
+          )}
+        </div>
+      )}
+      {hasRolling && (
+        <div className="flex items-center gap-3 text-xs flex-wrap">
+          <span className="text-gray-500">Rolling AVG:</span>
+          {rolling.L7  && <span className="text-gray-300">L7: <span className="font-semibold text-white">{rolling.L7.avg}</span></span>}
+          {rolling.L14 && <span className="text-gray-300">L14: <span className="font-semibold text-white">{rolling.L14.avg}</span></span>}
+          {rolling.L30 && <span className="text-gray-300">L30: <span className="font-semibold text-white">{rolling.L30.avg}</span></span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function BatterCard({ batter, pitcher, oddsLookup, onAnalysisComplete, externalAnalysis, externalAnalyzing }) {
   const [analysis, setAnalysis] = useState(externalAnalysis || null);
   const [analyzing, setAnalyzing] = useState(false);
@@ -96,12 +144,13 @@ export default function BatterCard({ batter, pitcher, oddsLookup, onAnalysisComp
     <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-col gap-3">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex items-center gap-2 min-w-0 flex-wrap">
           <span className="text-xs bg-gray-800 border border-gray-700 px-2 py-0.5 rounded font-mono shrink-0">
             {batter.lineupOrder !== 999 ? `#${batter.lineupOrder}` : batter.position}
           </span>
           <span className="font-semibold text-white truncate">{batter.name}</span>
           <span className="text-xs text-gray-500 shrink-0">B:{batter.batSide}</span>
+          <InjuryBadge injury={batter.msf?.injury} />
         </div>
         {rec && (
           <span className={`text-xs px-2 py-0.5 rounded-full border font-semibold shrink-0 ${rec.cls}`}>
@@ -139,6 +188,9 @@ export default function BatterCard({ batter, pitcher, oddsLookup, onAnalysisComp
           </div>
         </div>
       </div>
+
+      {/* MSF rolling averages + projections */}
+      <MsfPanel msf={batter.msf} />
 
       {/* Odds */}
       {battingOdds && (

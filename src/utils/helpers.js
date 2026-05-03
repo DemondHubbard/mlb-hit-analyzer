@@ -221,6 +221,18 @@ export function extractFromRoster(rosterData, excludePitchers = true) {
     .filter(p => p.id && p.name);
 }
 
+export async function fetchMsfPlayer(playerName) {
+  try {
+    const resp = await apiFetch(`/api/msf/player?name=${encodeURIComponent(playerName)}`);
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    if (data.error) return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
 export function apiFetch(url, options = {}) {
   const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
   const oddsKey = localStorage.getItem('odds_api_key');

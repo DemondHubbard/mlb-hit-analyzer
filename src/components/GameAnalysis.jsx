@@ -12,7 +12,7 @@ import {
   processPitcherSplits, processPitcherGameLog,
   processBatterSplits, processBatterGameLog,
   extractLineupFromLive, extractFromRoster,
-  apiFetch,
+  apiFetch, fetchMsfPlayer,
 } from '../utils/helpers.js';
 
 async function fetchJSON(url) {
@@ -150,7 +150,16 @@ export default function GameAnalysis({ game, onBack }) {
 
       const awayStubs = awayLineup.batters.slice(0, 9);
       const homeStubs = homeLineup.batters.slice(0, 9);
-      const allBatters = await Promise.all([...awayStubs, ...homeStubs].map(loadBatter));
+      const allStubs  = [...awayStubs, ...homeStubs];
+
+      // Load MLB stats + MSF data in parallel for all batters
+      const [mlbBatters, msfResults] = await Promise.all([
+        Promise.all(allStubs.map(loadBatter)),
+        Promise.all(allStubs.map(s => s.name ? fetchMsfPlayer(s.name) : Promise.resolve(null))),
+      ]);
+
+      // Merge MSF data into batter objects
+      const allBatters = mlbBatters.map((b, i) => b ? { ...b, msf: msfResults[i] || null } : null);
 
       const awayIds = new Set(awayStubs.map(b => b.id));
       setAwayBatters(allBatters.filter(b => b && awayIds.has(b.id)));

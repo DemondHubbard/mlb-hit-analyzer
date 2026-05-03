@@ -80,6 +80,23 @@ router.post('/', async (req, res) => {
 
   const smallSample2026 = (relevantSplit.atBats || 0) < 40;
 
+  // MySportsFeed data
+  const msf = batter.msf || null;
+  const msfBlock = (() => {
+    if (!msf) return '  MySportsFeed data not available';
+    const lines = [];
+    if (msf.injury?.status) {
+      lines.push(`  ⚠ INJURY: ${msf.injury.status} — ${msf.injury.description || 'details unknown'}`);
+    }
+    const r = msf.rolling || {};
+    if (r.L7)  lines.push(`  L7  rolling AVG: ${r.L7.avg}  (${r.L7.H}H / ${r.L7.AB}AB in ${r.L7.games} games)`);
+    if (r.L14) lines.push(`  L14 rolling AVG: ${r.L14.avg} (${r.L14.H}H / ${r.L14.AB}AB in ${r.L14.games} games)`);
+    if (r.L30) lines.push(`  L30 rolling AVG: ${r.L30.avg} (${r.L30.H}H / ${r.L30.AB}AB in ${r.L30.games} games)`);
+    const p = msf.projections;
+    if (p?.projH != null) lines.push(`  Today's projection: ${p.projH.toFixed(2)}H in ${p.projAB?.toFixed(2)}AB (${p.projHR?.toFixed(2)}HR projected)`);
+    return lines.length ? lines.join('\n') : '  No MSF data returned';
+  })();
+
   const prompt = `You are an expert MLB prop betting analyst. Calculate the probability of this batter recording AT LEAST 1 hit.
 
 ━━━ BATTER: ${batter.name} (Bats: ${batterHand}, Position: ${batter.position || 'UT'}) ━━━
@@ -109,6 +126,9 @@ ${pitcherHistoryBlock(pitcher, pitcherVsKey)}
 
   Last 3 starts: ${pitcherLog.map(g => `${g.date}: ${g.inningsPitched}IP ${g.earnedRuns}ER ${g.hits}H ${g.strikeOuts}K`).join(' | ') || 'N/A'}
 
+━━━ MYSPORTSFEED DATA ━━━
+${msfBlock}
+
 ━━━ BETTING ODDS ━━━
 ${oddsText}
 
@@ -119,6 +139,9 @@ ${oddsText}
 • Matchup-specific split (batter vs pitcher handedness) is the most important single factor
 • Hot streak (hit in 4+/5 games): +4–6%. Cold streak (0 hits in last 3): −4–6%
 • High WHIP pitcher (>1.40) slightly suppresses hit probability; low WHIP (<1.10) suppresses more
+• If MSF projection is available, treat projH as a strong signal — it incorporates matchup, park, weather
+• If injury status is GTD or Q, reduce confidence and note it in reasoning
+• L7/L14/L30 rolling averages are more recent form signals than the season split alone
 
 Return ONLY valid JSON, no markdown, no explanation:
 {
