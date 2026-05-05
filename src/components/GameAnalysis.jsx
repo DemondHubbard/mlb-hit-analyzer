@@ -11,6 +11,7 @@ import {
 import {
   processPitcherSplits, processPitcherGameLog,
   processBatterSplits, processBatterGameLog,
+  processBatterHomeAway, processVsPitcher,
   extractLineupFromLive, extractFromRoster,
   apiFetch, fetchMsfPlayer,
 } from '../utils/helpers.js';
@@ -52,18 +53,33 @@ async function loadPitcher(pitcherStub) {
   return result;
 }
 
-async function loadBatter(batterStub) {
+async function loadBatter(batterStub, pitcherId) {
   if (!batterStub?.id) return null;
+  // Cache without pitcher-specific data (career H2H fetched separately)
   const cacheKey = PLAYER_KEY(batterStub.id, today);
   const cached = loadCache(cacheKey);
-  if (cached) return { ...cached, lineupOrder: batterStub.battingOrder ?? cached.lineupOrder };
+  if (cached) {
+    const base = { ...cached, lineupOrder: batterStub.battingOrder ?? cached.lineupOrder };
+    // Still fetch H2H if pitcher known and not already cached
+    if (pitcherId && !cached.vsPitcher) {
+      const h2h = await fetchSoft(
+        `/api/mlb/people/${batterStub.id}/stats?stats=vsPlayer&group=hitting&opposingPlayerId=${pitcherId}&gameType=R`
+      );
+      base.vsPitcher = h2h ? processVsPitcher(h2h) : null;
+    }
+    return base;
+  }
 
-  const [info, splits26, splits25, splits24, log] = await Promise.all([
+  const [info, splits26, splits25, splits24, log, homeAway, vsPitcherRaw] = await Promise.all([
     fetchJSON(`/api/mlb/people/${batterStub.id}`),
     fetchJSON(`/api/mlb/people/${batterStub.id}/stats?stats=statSplits&group=hitting&season=2026&sitCodes=vl,vr&gameType=R`),
     fetchSoft(`/api/mlb/people/${batterStub.id}/stats?stats=statSplits&group=hitting&season=2025&sitCodes=vl,vr&gameType=R`),
     fetchSoft(`/api/mlb/people/${batterStub.id}/stats?stats=statSplits&group=hitting&season=2024&sitCodes=vl,vr&gameType=R`),
     fetchJSON(`/api/mlb/people/${batterStub.id}/stats?stats=gameLog&group=hitting&season=2026&gameType=R`),
+    fetchSoft(`/api/mlb/people/${batterStub.id}/stats?stats=statSplits&group=hitting&season=2026&sitCodes=h,a&gameType=R`),
+    pitcherId
+      ? fetchSoft(`/api/mlb/people/${batterStub.id}/stats?stats=vsPlayer&group=hitting&opposingPlayerId=${pitcherId}&gameType=R`)
+      : Promise.resolve(null),
   ]);
 
   const person = info?.people?.[0] || {};
@@ -76,6 +92,8 @@ async function loadBatter(batterStub) {
     splits: processBatterSplits(splits26),
     splits2025: splits25 ? processBatterSplits(splits25) : null,
     splits2024: splits24 ? processBatterSplits(splits24) : null,
+    splitHomeAway: homeAway ? processBatterHomeAway(homeAway) : null,
+    vsPitcher: vsPitcherRaw ? processVsPitcher(vsPitcherRaw) : null,
     gameLog: processBatterGameLog(log),
   };
   saveCache(cacheKey, result);
@@ -150,20 +168,17 @@ export default function GameAnalysis({ game, onBack }) {
 
       const awayStubs = awayLineup.batters.slice(0, 9);
       const homeStubs = homeLineup.batters.slice(0, 9);
-      const allStubs  = [...awayStubs, ...homeStubs];
 
-      // Load MLB stats + MSF data in parallel for all batters
-      const [mlbBatters, msfResults] = await Promise.all([
-        Promise.all(allStubs.map(loadBatter)),
-        Promise.all(allStubs.map(s => s.name ? fetchMsfPlayer(s.name) : Promise.resolve(null))),
+      // Load MLB stats + MSF in parallel; pass opposing pitcher ID for career H2H
+      const [mlbAwayBatters, mlbHomeBatters, awayMsf, homeMsf] = await Promise.all([
+        Promise.all(awayStubs.map(s => loadBatter(s, homeP?.id))),
+        Promise.all(homeStubs.map(s => loadBatter(s, awayP?.id))),
+        Promise.all(awayStubs.map(s => s.name ? fetchMsfPlayer(s.name) : Promise.resolve(null))),
+        Promise.all(homeStubs.map(s => s.name ? fetchMsfPlayer(s.name) : Promise.resolve(null))),
       ]);
 
-      // Merge MSF data into batter objects
-      const allBatters = mlbBatters.map((b, i) => b ? { ...b, msf: msfResults[i] || null } : null);
-
-      const awayIds = new Set(awayStubs.map(b => b.id));
-      setAwayBatters(allBatters.filter(b => b && awayIds.has(b.id)));
-      setHomeBatters(allBatters.filter(b => b && !awayIds.has(b.id)));
+      setAwayBatters(mlbAwayBatters.map((b, i) => b ? { ...b, msf: awayMsf[i] || null } : null).filter(Boolean));
+      setHomeBatters(mlbHomeBatters.map((b, i) => b ? { ...b, msf: homeMsf[i] || null } : null).filter(Boolean));
       setLoaded(true);
     } catch (e) {
       setLoadError(e.message);
@@ -186,11 +201,12 @@ export default function GameAnalysis({ game, onBack }) {
     if (!unanalyzed.length) return;
 
     setAnalyzeAllLoading(true);
+    const gameCtx = { venue: game.venue, isHome: activeTab === 'home' };
     for (const batter of unanalyzed) {
       try {
         const resp = await apiFetch('/api/analyze', {
           method: 'POST',
-          body: JSON.stringify({ batter, pitcher, odds: null }),
+          body: JSON.stringify({ batter, pitcher, odds: null, gameContext: gameCtx }),
         });
         if (resp.ok) {
           const data = await resp.json();
@@ -346,6 +362,8 @@ export default function GameAnalysis({ game, onBack }) {
                   batter={batter}
                   pitcher={facingPitcher}
                   oddsLookup={oddsLookup}
+                  isHome={activeTab === 'home'}
+                  venue={game.venue}
                   externalAnalysis={analyses[batter.id] || null}
                   externalAnalyzing={analyzeAllLoading && !analyses[batter.id]}
                   onAnalysisComplete={handleAnalysisComplete}

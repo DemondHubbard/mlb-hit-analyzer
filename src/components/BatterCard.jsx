@@ -96,7 +96,7 @@ function MsfPanel({ msf }) {
   );
 }
 
-export default function BatterCard({ batter, pitcher, oddsLookup, onAnalysisComplete, externalAnalysis, externalAnalyzing }) {
+export default function BatterCard({ batter, pitcher, oddsLookup, isHome, venue, onAnalysisComplete, externalAnalysis, externalAnalyzing }) {
   const [analysis, setAnalysis] = useState(externalAnalysis || null);
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState(null);
@@ -121,7 +121,12 @@ export default function BatterCard({ batter, pitcher, oddsLookup, onAnalysisComp
     try {
       const resp = await apiFetch('/api/analyze', {
         method: 'POST',
-        body: JSON.stringify({ batter, pitcher, odds: battingOdds || null }),
+        body: JSON.stringify({
+          batter,
+          pitcher,
+          odds: battingOdds || null,
+          gameContext: { isHome: isHome ?? null, venue: venue || null },
+        }),
       });
       if (!resp.ok) {
         const err = await resp.json();

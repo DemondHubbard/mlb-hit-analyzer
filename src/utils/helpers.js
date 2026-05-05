@@ -165,6 +165,49 @@ export function processBatterSplits(data) {
   return splits;
 }
 
+export function processBatterHomeAway(data) {
+  const splits = { home: null, away: null };
+  for (const stat of data?.stats || []) {
+    for (const split of stat?.splits || []) {
+      const code = split.split?.code;
+      const s = split.stat || {};
+      const entry = {
+        avg: s.avg || '.000',
+        obp: s.obp || '.000',
+        slg: s.slg || '.000',
+        ops: s.ops || '.000',
+        atBats: s.atBats || 0,
+        hits: s.hits || 0,
+        strikeOuts: s.strikeOuts || 0,
+        homeRuns: s.homeRuns || 0,
+      };
+      if (code === 'h') splits.home = entry;
+      else if (code === 'a') splits.away = entry;
+    }
+  }
+  return splits;
+}
+
+export function processVsPitcher(data) {
+  for (const stat of data?.stats || []) {
+    for (const split of stat?.splits || []) {
+      const s = split.stat;
+      if (!s) continue;
+      return {
+        atBats: s.atBats || 0,
+        hits: s.hits || 0,
+        homeRuns: s.homeRuns || 0,
+        strikeOuts: s.strikeOuts || 0,
+        avg: s.avg || '.000',
+        obp: s.obp || '.000',
+        slg: s.slg || '.000',
+        plateAppearances: s.plateAppearances || s.atBats || 0,
+      };
+    }
+  }
+  return null;
+}
+
 export function processBatterGameLog(data) {
   const log = [];
   for (const stat of data?.stats || []) {

@@ -14,6 +14,7 @@ app.use('/api/mlb',     require('./routes/mlb'));
 app.use('/api/odds',    require('./routes/odds'));
 app.use('/api/analyze', require('./routes/analyze'));
 app.use('/api/msf',     require('./routes/msf'));
+app.use('/api/savant',  require('./routes/savant'));
 
 app.get('/api/health', (req, res) => {
   res.json({
