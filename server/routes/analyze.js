@@ -3,6 +3,7 @@ const Anthropic = require('@anthropic-ai/sdk');
 const { loadBatterStatcast, loadPitcherStatcast } = require('./savant');
 
 const router = express.Router();
+const YEAR = new Date().getFullYear();
 
 // Park factor for hits (>1.0 hitter-friendly, <1.0 pitcher-friendly) — 2024-25 data
 const PARK_FACTORS = {
