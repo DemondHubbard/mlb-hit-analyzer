@@ -27,20 +27,23 @@ async function fetchSoft(url) {
   try { return await fetchJSON(url); } catch { return null; }
 }
 
-async function loadPitcher(pitcherStub) {
+async function loadPitcher(pitcherStub, teamId) {
   if (!pitcherStub?.id) return null;
   const cacheKey = PLAYER_KEY(`pitcher_${pitcherStub.id}`, today);
   const cached = loadCache(cacheKey);
   if (cached) return cached;
 
-  const [info, splits26, splits25, log] = await Promise.all([
+  const [info, splits26, splits25, log, teamPitching] = await Promise.all([
     fetchJSON(`/api/mlb/people/${pitcherStub.id}`),
     fetchJSON(`/api/mlb/people/${pitcherStub.id}/stats?stats=statSplits&group=pitching&season=2026&sitCodes=vl,vr&gameType=R`),
     fetchSoft(`/api/mlb/people/${pitcherStub.id}/stats?stats=statSplits&group=pitching&season=2025&sitCodes=vl,vr&gameType=R`),
     fetchJSON(`/api/mlb/people/${pitcherStub.id}/stats?stats=gameLog&group=pitching&season=2026&gameType=R`),
+    teamId ? fetchSoft(`/api/mlb/teams/${teamId}/pitching`) : Promise.resolve(null),
   ]);
 
   const person = info?.people?.[0] || {};
+  // Extract aggregate team pitching stats for bullpen context
+  const teamStat = teamPitching?.stats?.[0]?.splits?.[0]?.stat || null;
   const result = {
     id: person.id || pitcherStub.id,
     name: person.fullName || pitcherStub.name,
@@ -48,6 +51,13 @@ async function loadPitcher(pitcherStub) {
     splits: processPitcherSplits(splits26),
     splits2025: splits25 ? processPitcherSplits(splits25) : null,
     gameLog: processPitcherGameLog(log),
+    teamPitching: teamStat ? {
+      era:  teamStat.era  || null,
+      whip: teamStat.whip || null,
+      avg:  teamStat.avg  || null,
+      strikeoutsPer9: teamStat.strikeoutsPer9Inn || null,
+      walksPer9:      teamStat.walksPer9Inn      || null,
+    } : null,
   };
   saveCache(cacheKey, result);
   return result;
@@ -150,8 +160,8 @@ export default function GameAnalysis({ game, onBack }) {
     setLoadError(null);
     try {
       const [awayP, homeP, awayLineup, homeLineup, oddsResp] = await Promise.all([
-        loadPitcher(game.away.pitcher),
-        loadPitcher(game.home.pitcher),
+        loadPitcher(game.away.pitcher, game.away.teamId),
+        loadPitcher(game.home.pitcher, game.home.teamId),
         getLineup(game.gamePk, game.away.teamId, false),
         getLineup(game.gamePk, game.home.teamId, true),
         apiFetch('/api/odds').then(r => r.json()).catch(() => ({ lookup: {} })),

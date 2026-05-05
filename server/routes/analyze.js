@@ -284,6 +284,16 @@ ${pscBlock}
 
 LAST 3 STARTS: ${pitcherLog.map(g => `${g.date}: ${g.inningsPitched}IP ${g.earnedRuns}ER ${g.hits}H ${g.strikeOuts}K`).join(' | ') || 'N/A'}
 
+TEAM PITCHING STAFF (${YEAR} — starter + bullpen aggregate):
+${(() => {
+  const tp = pitcher.teamPitching;
+  if (!tp) return '  Not available';
+  const lines = [`  Staff ERA: ${tp.era || 'N/A'} | Staff WHIP: ${tp.whip || 'N/A'} | BAA: ${tp.avg || 'N/A'}`];
+  if (tp.strikeoutsPer9) lines.push(`  K/9: ${tp.strikeoutsPer9} | BB/9: ${tp.walksPer9 || 'N/A'}`);
+  lines.push('  (Use as proxy for bullpen quality if starter exits early)');
+  return lines.join('\n');
+})()}
+
 ━━━ PARK & GAME CONTEXT ━━━
 ${parkBlock}
   Batter is playing: ${isHome === true ? 'HOME' : isHome === false ? 'AWAY' : 'location unknown'}
@@ -296,26 +306,52 @@ ${msfBlock}
 
 ━━━ ANALYSIS WEIGHTS (use these to calibrate) ━━━
 • MLB baseline probability of 1+ hit: ~65–68% per game
-• MOST PREDICTIVE signals (weight heavily):
-  - xBA > actual AVG by 30+ pts → likely hitting better than stats show (BABIP regression pending)
-  - Platoon split (same vs opposite hand) — can be 100-150 pts OPS difference for platoon-heavy hitters
-  - Hard Hit% > 42% or barrel rate > 9% = elite contact quality; below 30% hard hit = weak contact
-  - K% > 28% significantly reduces hit probability; K% < 16% is elite contact rate
-  - Sweet spot% > 35% = optimal launch angle, high hit probability on contact
-• FORM signals (medium weight):
+
+BATTER CONTACT & DISCIPLINE:
+  - xBA > actual AVG by 30+ pts → positive BABIP regression likely, boost probability +3–5%
+  - Platoon advantage: same-handed matchup can shift OPS 100–150 pts for platoon-heavy hitters
+  - Hard Hit% > 42% or barrel rate > 9% = elite contact; below 30% hard hit = weak contact
+  - K% < 16% = elite contact rate (+3–4%); K% > 28% = swing-and-miss risk (−3–5%)
+  - Sweet spot% > 35% = optimal launch angle, high BABIP on contact
+  - CONTACT HITTER PROFILE: batter K% < 16% AND BB% < 8% = extreme contact hitter (swings early,
+    puts everything in play, very high floor) — this profile typically adds +3–5% hit probability
+  - PATIENT HITTER PROFILE: batter BB% > 12% — sees more pitches, works into hitter's counts;
+    if facing a wild pitcher (BB% > 10%), this batter will see more fat pitches to hit (+2–3%)
+
+PITCHER WALK RATE & COUNT DYNAMICS:
+  - Pitcher BB% > 10%: consistently falls behind in counts — batter sees more fastballs/meatballs,
+    higher probability of a hittable pitch each PA → boost hit probability +3–5%
+  - Pitcher BB% 8–10%: moderate wildness, slight batter advantage in counts (+1–2%)
+  - Pitcher BB% < 6%: excellent control, gets ahead of hitters, can use full arsenal → −2–3%
+  - Pitcher K% > 28% + low BB%: elite two-way pitcher, most dangerous matchup for a hit prop
+  - Pitcher K% < 18% + high BB%: control problems AND weak strikeout stuff = very hitter-friendly
+  - A wild pitcher (high BB%) is ESPECIALLY favorable for patient batters (high batter BB%) because
+    they will get into favorable counts more and see more pitches in their zone
+
+BULLPEN CONTEXT:
+  - Staff ERA > 4.50 or Staff WHIP > 1.40: weak bullpen — if starter is flagging (high pitch count,
+    early exits in recent starts), expect relief pitcher exposure which boosts hit probability +2–4%
+  - Staff ERA < 3.50 and WHIP < 1.15: elite bullpen — late innings become very pitcher-friendly
+  - If starter's recent BB/9 is high (wild): likely exits early, bullpen quality becomes key factor
+  - Batter's walk rate vs pitcher's walk rate: if batter BB% > pitcher BB%, batter is more disciplined
+    than pitcher is controlled — this is a meaningful edge for the batter
+
+FORM signals (medium weight):
   - Hot streak (hit in 4+/5 recent games): +4–6% — but regresses to mean
   - Ice cold (0 hits in last 4 games): −5–7%
   - L7/L14 rolling AVG > .300: meaningful hot hand signal
-• PITCHER signals (medium weight):
-  - High xBA Against (>.275): pitcher allows quality contact, boost batter probability
+
+PITCHER CONTACT QUALITY:
+  - High xBA Against (>.275): pitcher allows hard contact, boost batter probability
   - Low xBA Against (<.230): dominant contact suppressor, reduce batter probability
-  - WHIP > 1.40: slightly hitter-friendly; WHIP < 1.00: elite, reduce batter prob
-  - K% > 28%: strikeout-heavy pitcher reduces hit probability by 3–5%
-• PARK & CONTEXT (light weight):
+  - WHIP > 1.40: hitter-friendly; WHIP < 1.00: elite, reduce batter probability
+
+PARK & CONTEXT (light weight):
   - Coors: +5–8%; Oracle/Petco/T-Mobile: −4–6%; neutral parks: 0%
   - Lineup #1-2: +1% (extra PA); Lineup #8-9: −1% (fewer PA)
-  - Career matchup history: significant if 20+ AB (small sample otherwise)
-  - Home/away: meaningful for players with >15 pt AVG split
+  - Career matchup history: significant only if 20+ AB (small sample otherwise)
+  - Home/away: meaningful for players with >15 pt AVG split difference
+
 • If MSF projection available: projH > 1.0 is bullish; projH < 0.6 is bearish
 • Injury (GTD/Q): reduce confidence to low, note in reasoning
 

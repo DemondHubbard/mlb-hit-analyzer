@@ -59,6 +59,20 @@ router.get('/teams/:teamId/roster', handle((req) =>
   )
 ));
 
+// Team season pitching stats — used for bullpen context
+router.get('/teams/:teamId/pitching', handle((req) =>
+  cachedMlbGet(
+    `mlb_team_pitching_${req.params.teamId}_${today}`,
+    () => mlbGet(MLB_V1, `/teams/${req.params.teamId}/stats`, {
+      stats: 'season',
+      group: 'pitching',
+      gameType: 'R',
+      season: req.query.season || new Date().getFullYear(),
+    }),
+    4 * 3600 * 1000 // 4h — updates as games complete
+  )
+));
+
 router.get('/people/:playerId', handle((req) =>
   cachedMlbGet(
     `mlb_person_${req.params.playerId}`,
