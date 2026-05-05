@@ -7,9 +7,12 @@ export const today = [
   String(_d.getDate()).padStart(2, '0'),
 ].join('-');
 
-export const GAMES_KEY    = (date)        => `mlb_games_${date}`;
-export const PLAYER_KEY   = (id, date)    => `mlb_player_${id}_${date}`;
-export const ANALYSIS_KEY = (gamePk, date) => `mlb_analysis_${gamePk}_${date}`;
+// Bump this when data shape changes so stale localStorage entries are wiped
+const CACHE_VERSION = 'v4';
+
+export const GAMES_KEY    = (date)         => `mlb_games_${date}_${CACHE_VERSION}`;
+export const PLAYER_KEY   = (id, date)     => `mlb_player_${id}_${date}_${CACHE_VERSION}`;
+export const ANALYSIS_KEY = (gamePk, date) => `mlb_analysis_${gamePk}_${date}_${CACHE_VERSION}`;
 
 export function loadCache(key) {
   try {
@@ -32,8 +35,13 @@ export function cleanOldCache() {
   try {
     const keys = Object.keys(localStorage);
     for (const key of keys) {
-      if (key.startsWith('mlb_') && !key.endsWith(today)) {
-        localStorage.removeItem(key);
+      // Remove any mlb_ key that isn't today's date AND current version
+      if (key.startsWith('mlb_')) {
+        const isCurrentDay     = key.includes(today);
+        const isCurrentVersion = key.endsWith(CACHE_VERSION);
+        if (!isCurrentDay || !isCurrentVersion) {
+          localStorage.removeItem(key);
+        }
       }
     }
   } catch {

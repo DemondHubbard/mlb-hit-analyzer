@@ -139,7 +139,8 @@ export function processPitcherGameLog(data) {
       });
     }
   }
-  return log.slice(0, 10);
+  // MLB API returns oldest-first — reverse so most recent games are first
+  return log.reverse().slice(0, 10);
 }
 
 export function processBatterSplits(data) {
@@ -223,7 +224,8 @@ export function processBatterGameLog(data) {
       });
     }
   }
-  return log.slice(0, 10);
+  // MLB API returns oldest-first — reverse so most recent games are first
+  return log.reverse().slice(0, 10);
 }
 
 export function extractLineupFromLive(liveData, isHome) {

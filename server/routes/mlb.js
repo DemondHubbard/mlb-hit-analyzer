@@ -25,9 +25,11 @@ const handle = (fn) => async (req, res) => {
   }
 };
 
-// MLB schedule uses Eastern Time for dates — compute ET date on the server
-// so cache keys and default dates don't flip at 8 PM ET (midnight UTC).
-const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+// Compute current ET date per-call so cache keys stay accurate across day boundaries
+// without requiring a server restart.
+function getToday() {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+}
 
 // Helper: cache-aside wrapper for MLB player data (12h TTL — doesn't change mid-day)
 async function cachedMlbGet(cacheKey, fetcher, ttlMs = 12 * 3600 * 1000) {
@@ -41,7 +43,7 @@ async function cachedMlbGet(cacheKey, fetcher, ttlMs = 12 * 3600 * 1000) {
 router.get('/schedule', handle((req) =>
   // Schedule cached 30 min (probable pitchers can update)
   cachedMlbGet(
-    `mlb_schedule_${req.query.date || today}`,
+    `mlb_schedule_${req.query.date || getToday()}`,
     () => mlbGet(MLB_V1, '/schedule', { sportId: 1, ...req.query }),
     30 * 60 * 1000
   )
@@ -54,7 +56,7 @@ router.get('/game/:gamePk/live', handle((req) =>
 
 router.get('/teams/:teamId/roster', handle((req) =>
   cachedMlbGet(
-    `mlb_roster_${req.params.teamId}_${today}`,
+    `mlb_roster_${req.params.teamId}_${getToday()}`,
     () => mlbGet(MLB_V1, `/teams/${req.params.teamId}/roster`, req.query)
   )
 ));
@@ -62,7 +64,7 @@ router.get('/teams/:teamId/roster', handle((req) =>
 // Team season pitching stats — used for bullpen context
 router.get('/teams/:teamId/pitching', handle((req) =>
   cachedMlbGet(
-    `mlb_team_pitching_${req.params.teamId}_${today}`,
+    `mlb_team_pitching_${req.params.teamId}_${getToday()}`,
     () => mlbGet(MLB_V1, `/teams/${req.params.teamId}/stats`, {
       stats: 'season',
       group: 'pitching',
@@ -83,7 +85,7 @@ router.get('/people/:playerId', handle((req) =>
 
 router.get('/people/:playerId/stats', handle(async (req) => {
   const { season, stats, group } = req.query;
-  const cacheKey = `mlb_stats_${req.params.playerId}_${stats}_${group}_${season}_${today}`;
+  const cacheKey = `mlb_stats_${req.params.playerId}_${stats}_${group}_${season}_${getToday()}`;
   return cachedMlbGet(
     cacheKey,
     () => mlbGet(MLB_V1, `/people/${req.params.playerId}/stats`, req.query),
