@@ -178,6 +178,24 @@ export default function BatterCard({ batter, pitcher, oddsLookup, isHome, venue,
         />
       </div>
 
+      {/* H2H vs pitcher */}
+      {batter.vsPitcher && batter.vsPitcher.atBats >= 3 && (
+        <div className="bg-gray-800/50 border border-gray-700/50 rounded-lg px-3 py-2">
+          <p className="text-xs text-gray-500 mb-1">Career vs {pitcher?.name?.split(' ').pop() || 'Pitcher'}</p>
+          <div className="flex items-center gap-4 text-xs">
+            <span className="font-bold text-white">{batter.vsPitcher.avg}</span>
+            <span className="text-gray-500">{batter.vsPitcher.hits}/{batter.vsPitcher.atBats} AB</span>
+            {batter.vsPitcher.homeRuns > 0 && (
+              <span className="text-yellow-400">{batter.vsPitcher.homeRuns}HR</span>
+            )}
+            {batter.vsPitcher.strikeOuts > 0 && (
+              <span className="text-gray-500">{batter.vsPitcher.strikeOuts}K</span>
+            )}
+            <span className="text-gray-500">{batter.vsPitcher.obp} OBP</span>
+          </div>
+        </div>
+      )}
+
       {/* Game dots */}
       <div className="flex items-center gap-3 flex-wrap">
         <div>
@@ -260,6 +278,28 @@ export default function BatterCard({ batter, pitcher, oddsLookup, isHome, venue,
                       </li>
                     ))}
                   </ul>
+                </div>
+              )}
+
+              {batter.splits2025 && (
+                <div>
+                  <p className="text-xs text-gray-500 mb-1.5">2025 splits</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {batter.splits2025.vsLHP && (
+                      <div className="bg-gray-800/50 rounded-lg p-2 text-center">
+                        <p className="text-xs text-gray-500 mb-0.5">vs LHP '25</p>
+                        <p className="font-bold text-sm text-gray-200">{batter.splits2025.vsLHP.avg}</p>
+                        <p className="text-xs text-gray-600">{batter.splits2025.vsLHP.atBats} AB</p>
+                      </div>
+                    )}
+                    {batter.splits2025.vsRHP && (
+                      <div className="bg-gray-800/50 rounded-lg p-2 text-center">
+                        <p className="text-xs text-gray-500 mb-0.5">vs RHP '25</p>
+                        <p className="font-bold text-sm text-gray-200">{batter.splits2025.vsRHP.avg}</p>
+                        <p className="text-xs text-gray-600">{batter.splits2025.vsRHP.atBats} AB</p>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 

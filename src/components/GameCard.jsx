@@ -11,7 +11,7 @@ const STATUS_COLORS = {
   'Postponed': 'text-red-400',
 };
 
-export default function GameCard({ game, onClick }) {
+export default function GameCard({ game, onClick, analyzedCount }) {
   const statusColor = STATUS_COLORS[game.status] || 'text-gray-400';
 
   return (
@@ -21,11 +21,15 @@ export default function GameCard({ game, onClick }) {
     >
       <div className="flex items-center justify-between mb-4 text-xs">
         <span className={`font-medium ${statusColor}`}>{game.status}</span>
-        <span className="text-gray-500">{formatTime(game.gameDate)}</span>
+        <div className="flex items-center gap-2">
+          {analyzedCount > 0 && (
+            <span className="text-green-400 font-semibold">✓ {analyzedCount}</span>
+          )}
+          <span className="text-gray-500">{formatTime(game.gameDate)}</span>
+        </div>
       </div>
 
       <div className="flex items-center gap-3">
-        {/* Away team */}
         <div className="flex-1 min-w-0">
           <p className="font-bold text-white text-sm truncate">{game.away.teamName}</p>
           <p className="text-xs text-gray-500 truncate mt-0.5">
@@ -35,7 +39,6 @@ export default function GameCard({ game, onClick }) {
 
         <div className="text-gray-600 font-bold text-sm shrink-0 group-hover:text-gray-400 transition-colors">@</div>
 
-        {/* Home team */}
         <div className="flex-1 min-w-0 text-right">
           <p className="font-bold text-white text-sm truncate">{game.home.teamName}</p>
           <p className="text-xs text-gray-500 truncate mt-0.5">
