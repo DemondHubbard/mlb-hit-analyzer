@@ -94,18 +94,22 @@ export default function App() {
       return;
     }
 
-    // Build list of batters not yet analyzed (smart skip)
+    // Build list of batters not yet analyzed — only confirmed live lineups (smart skip)
     const toAnalyze = [];
     for (const { game, awayLineup, homeLineup } of gamesWithLineups) {
       const cached = loadCache(ANALYSIS_KEY(game.gamePk, today)) || {};
-      for (const stub of awayLineup.batters.slice(0, 9)) {
-        if (!cached[stub.id]) {
-          toAnalyze.push({ stub, game, isHome: false, opponentPitcherId: game.home.pitcher?.id });
+      if (awayLineup.fromLive) {
+        for (const stub of awayLineup.batters.slice(0, 9)) {
+          if (!cached[stub.id]) {
+            toAnalyze.push({ stub, game, isHome: false, opponentPitcherId: game.home.pitcher?.id });
+          }
         }
       }
-      for (const stub of homeLineup.batters.slice(0, 9)) {
-        if (!cached[stub.id]) {
-          toAnalyze.push({ stub, game, isHome: true, opponentPitcherId: game.away.pitcher?.id });
+      if (homeLineup.fromLive) {
+        for (const stub of homeLineup.batters.slice(0, 9)) {
+          if (!cached[stub.id]) {
+            toAnalyze.push({ stub, game, isHome: true, opponentPitcherId: game.away.pitcher?.id });
+          }
         }
       }
     }
